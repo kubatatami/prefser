@@ -29,7 +29,7 @@ import io.reactivex.Observable;
 import io.reactivex.ObservableEmitter;
 import io.reactivex.ObservableOnSubscribe;
 import io.reactivex.ObservableSource;
-import io.reactivex.functions.Action;
+import io.reactivex.functions.Cancellable;
 import io.reactivex.functions.Function;
 import io.reactivex.functions.Predicate;
 
@@ -68,7 +68,25 @@ public class Prefser {
     private final SharedPreferences.Editor editor;
     private final JsonConverter jsonConverter;
     private final AccessorsProvider accessorProvider;
-    private SharedPreferences.OnSharedPreferenceChangeListener preferenceListener;
+
+    private final Observable<String> observablePreferences  = Observable.create(new ObservableOnSubscribe<String>() {
+        @Override public void subscribe(final ObservableEmitter<String> emitter) throws Exception {
+            final SharedPreferences.OnSharedPreferenceChangeListener listener = new SharedPreferences.OnSharedPreferenceChangeListener() {
+                @Override
+                public void onSharedPreferenceChanged(SharedPreferences preferences, String key) {
+                    emitter.onNext(key);
+                }
+            };
+
+            emitter.setCancellable(new Cancellable() {
+                @Override public void cancel() throws Exception {
+                    preferences.unregisterOnSharedPreferenceChangeListener(listener);
+                }
+            });
+
+            preferences.registerOnSharedPreferenceChangeListener(listener);
+        }
+    }).share();
 
     /**
      * Creates Prefser object with default SharedPreferences from PreferenceManager.
@@ -287,25 +305,7 @@ public class Prefser {
      * @return Observable with String containing key of the value in default SharedPreferences
      */
     public Observable<String> observePreferences() {
-        return Observable.create(new ObservableOnSubscribe<String>() {
-            @Override
-            public void subscribe(final @io.reactivex.annotations.NonNull ObservableEmitter<String> e) {
-                preferenceListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
-                    @Override
-                    public void onSharedPreferenceChanged(SharedPreferences sharedPrefs, String key) {
-                        if (!e.isDisposed()) {
-                            e.onNext(key);
-                        }
-                    }
-                };
-                preferences.registerOnSharedPreferenceChangeListener(preferenceListener);
-            }
-        }).doOnDispose(new Action() {
-            @Override
-            public void run() throws Exception {
-                preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
-            }
-        }).share();
+        return observablePreferences;
     }
 
     /**
